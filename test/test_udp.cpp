@@ -10,11 +10,9 @@
 /* related header files */
 #include "udp_comm.h"
 #include "motor_init.h"
-/* c system header files */
-
-/* c++ standard library header files */
 #include <iostream>
 #include <string>
+#include <unistd.h>  // 添加 usleep 函数的头文件
 
 /* external project header files */
 //#include <ros/ros.h>
@@ -30,9 +28,6 @@ udp::SendData udp_send_data = {};
 
 int main(int argc, char *argv[])
 {
-    //ros::init(argc, argv, "test_motor_udp");
-    //ros::Rate loop_rate(100);
-    // initialization
     if (!udp_comm.init())
     {
         printf("udp init failed\n");
@@ -41,15 +36,17 @@ int main(int argc, char *argv[])
 
     while (true)
     {
-        // printf("%d\n", static_cast<uint8_t>(CommBoardState::ERROR));
         udp_send_data.state = static_cast<uint8_t>(CommBoardState::kNormal);
+        
         // 调用电机标定函数
-        InitMotors(udp_comm, udp_send_data, udp_receive_data);
-        //udp_send_data.udp_motor_send[0].torque = 0.0;
+        //InitMotors(udp_comm, udp_send_data, udp_receive_data);
+        //ProtectMotors(udp_comm, udp_send_data, udp_receive_data);
+        InitLegMotors(udp_comm, udp_send_data, udp_receive_data, 4);
+        //udp_send_data.udp_motor_send[2].torque = 0.2;
 
         udp_comm.setSendData(udp_send_data);
         udp_comm.send();
-        if (udp_comm.receive(1000))
+        if (udp_comm.receive(1000000))
         {
             udp_receive_data = udp_comm.getReceiveData();
             std::cout << "receive successfully" << std::endl;
@@ -64,13 +61,11 @@ int main(int argc, char *argv[])
                           << ", Torque: " << udp_receive_data.udp_motor_receive[i].torque
                           << ", Temp: " << udp_receive_data.udp_motor_receive[i].temp << std::endl;
             }
-            for (int i = 0; i < 6; ++i)
-            {
-                std::cout << "Foot Pressure " << i << ": " << udp_receive_data.foot_pressure[i] << std::endl;
-            }
-            std::cout << "Check Digit: " << udp_receive_data.check_digit << std::endl;
         }
-        std::cout << "is running" << std::endl;
+        //std::cout << "is running" << std::endl;
+        
+        // 添加 1 秒延时
+        usleep(1000000);  // 1000000 微秒 = 1 秒
     }
     return 0;
 }

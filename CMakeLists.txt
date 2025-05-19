@@ -21,12 +21,17 @@ set(SRC_FILES
 add_library(min_udp STATIC ${SRC_FILES})
 # add_library(air_interface SHARED ${SRC_FILES})
 add_executable(test_udp test/test_udp.cpp)
+add_executable(protect_motor test/protect_motor.cpp)
 
 target_link_libraries(test_udp min_udp
   pthread ${catkin_LIBRARIES}
 )
 
-install(TARGETS min_udp test_udp
+target_link_libraries(protect_motor min_udp
+  pthread ${catkin_LIBRARIES}
+)
+
+install(TARGETS min_udp test_udp protect_motor
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
