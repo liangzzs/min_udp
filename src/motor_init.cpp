@@ -18,7 +18,9 @@
 void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data)
 {
     const double kTolerance = 0.01;
-    const double kTorque = 0.35; 
+    const double kTorque1 = 0.35;  // knee joint motors
+    const double kTorque2 = 0.3;   // basic joint motors
+    const double kTorque3 = 0.2;   // 踝关节motors
     const int kStableCount = 50;
     bool allMotorsStable = false;
     int stableCounter = 0;
@@ -33,9 +35,19 @@ void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &r
 
         for (int i = 0; i < 18; ++i)
         {
-            // fing if motor is in reverseMotors list
+            double baseTorque;
+            // set different torque for different motors
+            if (i == 1 || i == 4 || i == 7 || i == 10 || i == 13 || i == 16) {
+                baseTorque = kTorque1;
+            } else if (i == 0 || i == 3 || i == 6 || i == 9 || i == 12 || i == 15) {
+                baseTorque = kTorque2;
+            } else {
+                baseTorque = kTorque3;
+            }
+
+            // whether the motor is in reverse
             bool isReverseMotor = std::find(reverseMotors.begin(), reverseMotors.end(), i) != reverseMotors.end();
-            double appliedTorque = isReverseMotor ? -kTorque : kTorque;
+            double appliedTorque = isReverseMotor ? -baseTorque : baseTorque;
             send_data.udp_motor_send[i].torque = appliedTorque;
         }
         // send torque command
