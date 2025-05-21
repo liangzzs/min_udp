@@ -28,10 +28,14 @@ int main(int argc, char *argv[])
     }    
 
     udp_send_data.state = static_cast<uint8_t>(CommBoardState::kNormal);
-    InitMotors(udp_comm, udp_send_data, udp_receive_data);
+    //InitMotors(udp_comm, udp_send_data, udp_receive_data);
+    //InitLegMotors(udp_comm, udp_send_data, udp_receive_data, 0);
     ProtectMotors(udp_comm, udp_send_data, udp_receive_data);
+    // udp_send_data.udp_motor_send[16].torque = -0.35;
+    // udp_send_data.udp_motor_send[16].kp = 0.0;
+    // udp_send_data.udp_motor_send[16].kd = 0.5;
 
-    std::cout << "电机初始化和保护完成，开始主循环..." << std::endl;
+    //std::cout << "电机初始化和保护完成，开始主循环..." << std::endl;
 
     while (true)
     {
@@ -41,20 +45,8 @@ int main(int argc, char *argv[])
         if (udp_comm.receive(1000000))
         {
             udp_receive_data = udp_comm.getReceiveData();
-            std::cout << "receive successfully" << std::endl;
-
-            std::cout << "Header: " << udp_receive_data.header[0] << ", " << udp_receive_data.header[1] << std::endl;
-            std::cout << "State: " << static_cast<int>(udp_receive_data.state) << std::endl;
-            for (int i = 0; i < 18; ++i)
-            {
-                std::cout << "Motor " << i << " - Pos: " << udp_receive_data.udp_motor_receive[i].pos
-                          << ", Vel: " << udp_receive_data.udp_motor_receive[i].vel
-                          << ", Acc: " << udp_receive_data.udp_motor_receive[i].acc
-                          << ", Torque: " << udp_receive_data.udp_motor_receive[i].torque
-                          << ", Temp: " << udp_receive_data.udp_motor_receive[i].temp << std::endl;
-            }
+            std::cout << "Motor  position: " << udp_receive_data.udp_motor_receive[12].pos << std::endl;
         }
-        //std::cout << "is running" << std::endl;
 
         usleep(1000000);
     }

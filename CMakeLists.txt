@@ -27,6 +27,11 @@ target_link_libraries(test_udp min_udp
   pthread ${catkin_LIBRARIES}
 )
 
+add_executable(test_udp2 test/test_udp2.cpp)
+target_link_libraries(test_udp2 min_udp
+  pthread ${catkin_LIBRARIES}
+)
+
 target_link_libraries(protect_motor min_udp
   pthread ${catkin_LIBRARIES}
 )
