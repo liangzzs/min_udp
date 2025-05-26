@@ -202,6 +202,7 @@ int main(int argc, char *argv[])
                 forceControlTime = 0;
             }        
         break;
+        
         case 3:
             std::cout << "进入膝关节和踝关节机械限位状态" << std::endl;            
             init_finished_flag.setZero();
@@ -237,18 +238,15 @@ int main(int argc, char *argv[])
                 // 保存电机零位
                 for (int j = 0; j < 6; ++j)
                 {
-                    int motorIndex = joint_num + 3*j;  // 在循环内部声明motorIndex
-                    // 记录零位位置
+                    int motorIndex = joint_num + 3*j;                    
                     double zeroPosition = current_pos(joint_num, j);
                     udp_send_data.udp_motor_send[motorIndex].torque = 0.0;
                     udp_send_data.udp_motor_send[motorIndex].kp = 0.0;
                     udp_send_data.udp_motor_send[motorIndex].kd = 0.0;
                     std::cout << "Joint " << joint_num << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
                 }
-                calibrationStep = 99; // 进入根关节回0度case
-            }
-
-        
+                calibrationStep = 99; 
+            }        
         break;
         case 99:
         {
