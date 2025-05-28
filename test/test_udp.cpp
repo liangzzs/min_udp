@@ -206,21 +206,19 @@ int main(int argc, char *argv[])
         case 3:
             std::cout << "进入膝关节和踝关节机械限位状态" << std::endl;            
             init_finished_flag.setZero();
-            // 收取关节数据
             if (udp_comm.receive(10))
             {
                 udp_receive_data = udp_comm.getReceiveData();
-                // 遍历所有电机并给矩阵赋值
-                for(int leg = 0; leg < 6; leg++) {  // 遍历6条腿
-                    for(int joint = 1; joint < 3; joint++) {  // 只遍历膝关节(1)和踝关节(2)
+                for(int leg = 0; leg < 6; leg++) {
+                    for(int joint = 1; joint < 3; joint++) {
                         int motor_idx = leg * 3 + joint;
                         current_pos(joint, leg) = udp_receive_data.udp_motor_receive[motor_idx].pos;
                     }
                 }
             }
             // 检查膝关节和踝关节是否到达机械限位
-            for (int joint = 1; joint < 3; joint++) {  // 遍历膝关节和踝关节
-                for (int leg = 0; leg < 6; leg++) {    // 遍历每条腿
+            for (int joint = 1; joint < 3; joint++) {  
+                for (int leg = 0; leg < 6; leg++) {
                     if (std::abs(current_pos(joint, leg) - last_pos(joint, leg)) < 0.002)
                     {
                         init_finished_flag(joint, leg) = true;
@@ -245,15 +243,53 @@ int main(int argc, char *argv[])
                     udp_send_data.udp_motor_send[motorIndex].kd = 0.0;
                     std::cout << "Joint " << joint_num << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
                 }
-                calibrationStep = 99; 
+                calibrationStep = 4; 
             }        
         break;
-        case 99:
-        {
-            ProtectMotors(udp_comm, udp_send_data, udp_receive_data);
-            std::cout << "进入保护状态" << std::endl;
-        }
+
+        case 4: // 膝关节和踝关节回0度位置            
+            std::cout << "进入膝关节和踝关节回0度位置状态" << std::endl;
+            const int maxK2 = 100;
+            static int kk2 = 0;
+            kk2++;
+            if(kk2 > maxK2) kk2 = maxK2;            
+            
+            for(int curr_joint = 1; curr_joint <= 2; curr_joint++) 
+            {
+                for (int j = 0; j < 6; ++j)
+                {
+                    int motorIndex = curr_joint + 3*j;
+                    float targetDiff;                    
+                    bool isReverseMotor = std::find(reverseMotors.begin(), 
+                                                reverseMotors.end(), 
+                                                motorIndex) != reverseMotors.end();
+                    if (curr_joint == 1)                    
+                        targetDiff = isReverseMotor ? 5.0f : -5.0f;                    
+                    else                     
+                        targetDiff = isReverseMotor ? 8.0f : -8.0f;                    
+
+                    float tmpTgt = current_pos(curr_joint, j) + (targetDiff / float(maxK2)) * kk2;
+
+                    udp_send_data.udp_motor_send[motorIndex].pos = tmpTgt;
+                    if (curr_joint == 1) //knee joint
+                    {
+                        udp_send_data.udp_motor_send[motorIndex].kp = 0.2;   
+                        udp_send_data.udp_motor_send[motorIndex].kd = 0.15;
+                    } 
+                    else                 //ankle joint
+                    { 
+                        udp_send_data.udp_motor_send[motorIndex].kp = 0.12;  
+                        udp_send_data.udp_motor_send[motorIndex].kd = 0.08;  
+                    }
+                }
+            }
+            
         break;
+
+        // case 99:        
+        //     ProtectMotors(udp_comm, udp_send_data, udp_receive_data);
+        //     std::cout << "进入保护状态" << std::endl;        
+        // break;
         }
         last_pos = current_pos;
 
