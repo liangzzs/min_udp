@@ -17,212 +17,268 @@
 
 void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data)
 {
-    const double kTolerance = 0.01;
-    const double kTorque1 = 0.35;   // knee joint motors
-    const double kTorque2 = 0.15;   // hip joint motors
-    const double kTorque3 = 0.15;   // heel joint motors
-    const int kStableCount = 50;
-    bool allMotorsStable = false;
-    int stableCounter = 0;
+    Timer timer_;
+    int calibrationStep = -1;
+    int forceControlTime = 0;
+    int joint_num = 0;
+    int sum_flag = 0;
 
-    // reverse motors list
+    Eigen::Matrix<bool, 3, 6> init_finished_flag;
+    Eigen::MatrixXd current_pos(3, 6);
+    Eigen::MatrixXd last_pos(3, 6);
     std::vector<int> reverseMotors = {1, 2, 4, 5, 9, 12, 15, 16, 17};
-    std::vector<double> lastPositions(18, 0.000);
 
-    while (!allMotorsStable)
+    while (true)
     {
-        bool currentlyStable = false;
+        timer_.start();
 
-        for (int i = 0; i < 18; ++i)
+        // 标定程序
+        switch (calibrationStep)
         {
-            double baseTorque;
-            // set different torque for different motors
-            if (i == 1 || i == 4 || i == 7 || i == 10 || i == 13 || i == 16) {
-                baseTorque = kTorque1;
-                send_data.udp_motor_send[i].kd = 0.5;  // 设置膝关节电机的kd值
-            } else if (i == 0 || i == 3 || i == 6 || i == 9 || i == 12 || i == 15) {
-                baseTorque = kTorque2;
-                send_data.udp_motor_send[i].kd = 0.0;  // 设置髋关节电机的kd值
-            } else {
-                baseTorque = kTorque3;
-                send_data.udp_motor_send[i].kd = 0.0;  // 设置踝关节电机的kd值
+        case -1: // 给定力控命令
+            forceControlTime++;
+            udp_comm.receive(10);
+            for (int j = 0; j < 6; ++j)
+            {
+                int motorIndex = joint_num + 3 * j;
+                send_data.udp_motor_send[motorIndex].kp = 0.0;
+                if (joint_num == 0)
+                {
+                    bool isReverseMotor = std::find(reverseMotors.begin(), reverseMotors.end(), motorIndex) != reverseMotors.end();
+                    double appliedTorque = isReverseMotor ? -0.15 : 0.15;
+                    send_data.udp_motor_send[motorIndex].torque = appliedTorque;
+                    send_data.udp_motor_send[motorIndex].kd = 0.5;
+                }
+                std::cout << "forceControlTime: " << forceControlTime << std::endl;
+            }
+            if (forceControlTime > 200)
+            {
+                calibrationStep = 0;
+                forceControlTime = 0;
+            }
+            break;
+
+        case 0: // 判断是否到达机械限位
+            init_finished_flag.setZero();
+            if (udp_comm.receive(10))
+            {
+                receive_data = udp_comm.getReceiveData();
+                for (int leg = 0; leg < 6; leg++)
+                {
+                    for (int joint = 0; joint < 3; joint++)
+                    {
+                        int motor_idx = leg * 3 + joint;
+                        current_pos(joint, leg) = receive_data.udp_motor_receive[motor_idx].pos;
+                    }
+                }
             }
 
-            // whether the motor is in reverse
-            bool isReverseMotor = std::find(reverseMotors.begin(), reverseMotors.end(), i) != reverseMotors.end();
-            double appliedTorque = isReverseMotor ? -baseTorque : baseTorque;
-            send_data.udp_motor_send[i].torque = appliedTorque;
-            send_data.udp_motor_send[i].kp = 0.0;
+            for (int j = 0; j < 6; ++j)
+            {
+                if (std::abs(current_pos(joint_num, j) - last_pos(joint_num, j)) < 0.002)
+                {
+                    init_finished_flag(joint_num, j) = true;
+                }
+            }
+            sum_flag = 0;
+            for (int j = 0; j < 6; ++j)
+            {
+                sum_flag += init_finished_flag(joint_num, j);
+            }
+            if (sum_flag == 6)
+            {
+                std::cout << "test ok " << std::endl;
+                for (int j = 0; j < 6; ++j)
+                {
+                    int motorIndex = joint_num + 3 * j;
+                    double zeroPosition = current_pos(joint_num, j);
+                    send_data.udp_motor_send[motorIndex].torque = 0.0;
+                    send_data.udp_motor_send[motorIndex].kp = 0.0;
+                    send_data.udp_motor_send[motorIndex].kd = 0.0;
+                    std::cout << "Joint " << joint_num << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
+                }
+                calibrationStep = 1;
+            }
+            break;
+
+        case 1: // 根关节回0度位置
+        {
+            std::cout << "进入根关节回0度状态" << std::endl;
+            const int maxK = 200;
+            static int kk = 0;
+            kk++;
+            if (kk > maxK)
+                kk = maxK;
+            if (udp_comm.receive(10))
+            {
+                receive_data = udp_comm.getReceiveData();
+                for (int j = 0; j < 6; ++j)
+                {
+                    int motorIndex = 3 * j;
+                    float targetDiff;
+
+                    if (motorIndex == 0 || motorIndex == 3 || motorIndex == 6)
+                    {
+                        targetDiff = -7.25f;
+                    }
+                    else if (motorIndex == 9 || motorIndex == 12 || motorIndex == 15)
+                    {
+                        targetDiff = 7.25f;
+                    }
+
+                    float tmpTgt = current_pos(joint_num, j) + (targetDiff / float(maxK)) * kk;
+
+                    send_data.udp_motor_send[motorIndex].pos = tmpTgt;
+                    send_data.udp_motor_send[motorIndex].kp = 0.05;
+                    send_data.udp_motor_send[motorIndex].kd = 0.5;
+                }
+            }
+            if (kk == maxK)
+            {
+                calibrationStep = 2;
+            }
         }
-        // send torque command
+        break;
+
+        case 2: // 膝关节和踝关节力控初始化
+            std::cout << "进入膝关节和踝关节初始化状态" << std::endl;
+            forceControlTime++;
+            udp_comm.receive(10);
+            
+            for (int j = 0; j < 6; ++j)
+            {
+                // 处理膝关节
+                int kneeMotorIndex = 1 + 3 * j;
+                send_data.udp_motor_send[kneeMotorIndex].kp = 0.0;
+                bool isKneeReverse = std::find(reverseMotors.begin(), reverseMotors.end(), kneeMotorIndex) != reverseMotors.end();
+                double kneeAppliedTorque = isKneeReverse ? -0.5 : 0.5;
+                send_data.udp_motor_send[kneeMotorIndex].torque = kneeAppliedTorque;
+                send_data.udp_motor_send[kneeMotorIndex].kd = 0.5;
+                
+                // 处理踝关节
+                int ankleMotorIndex = 2 + 3 * j;
+                send_data.udp_motor_send[ankleMotorIndex].kp = 0.0;
+                bool isAnkleReverse = std::find(reverseMotors.begin(), reverseMotors.end(), ankleMotorIndex) != reverseMotors.end();
+                double ankleAppliedTorque = isAnkleReverse ? -0.2 : 0.2;
+                send_data.udp_motor_send[ankleMotorIndex].torque = ankleAppliedTorque;
+                send_data.udp_motor_send[ankleMotorIndex].kd = 0.5;
+            }
+            
+            if (forceControlTime > 200)
+            {
+                calibrationStep = 3;
+                forceControlTime = 0;
+            }
+            break;
+            
+        case 3: // 检测膝关节和踝关节机械限位
+            std::cout << "进入膝关节和踝关节机械限位状态" << std::endl;
+            init_finished_flag.setZero();
+            if (udp_comm.receive(10))
+            {
+                receive_data = udp_comm.getReceiveData();
+                for(int leg = 0; leg < 6; leg++) {
+                    for(int joint = 1; joint < 3; joint++) {
+                        int motor_idx = leg * 3 + joint;
+                        current_pos(joint, leg) = receive_data.udp_motor_receive[motor_idx].pos;
+                    }
+                }
+            }
+
+            for (int joint = 1; joint < 3; joint++) {
+                for (int leg = 0; leg < 6; leg++) {
+                    if (std::abs(current_pos(joint, leg) - last_pos(joint, leg)) < 0.002)
+                    {
+                        init_finished_flag(joint, leg) = true;
+                    }
+                }
+            }
+            sum_flag = 0;
+            for (int j = 0; j < 6; ++j)
+            {
+                sum_flag += init_finished_flag(joint_num, j);
+            }
+            if (sum_flag == 6)
+            {
+                std::cout << "test ok " << std::endl;
+                for (int j = 0; j < 6; ++j)
+                {
+                    int motorIndex = joint_num + 3*j;
+                    double zeroPosition = current_pos(joint_num, j);
+                    send_data.udp_motor_send[motorIndex].torque = 0.0;
+                    send_data.udp_motor_send[motorIndex].kp = 0.0;
+                    send_data.udp_motor_send[motorIndex].kd = 0.0;
+                    std::cout << "Joint " << joint_num << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
+                }
+                calibrationStep = 4;
+            }
+            break;
+
+        case 4: // 膝关节和踝关节回0度位置
+            std::cout << "进入膝关节和踝关节回0度位置状态" << std::endl;
+            {
+                const int maxK2 = 100;
+                static int kk2 = 0;
+                kk2++;
+                if(kk2 > maxK2) kk2 = maxK2;
+                
+                for(int curr_joint = 1; curr_joint <= 2; curr_joint++) 
+                {
+                    for (int j = 0; j < 6; ++j)
+                    {
+                        int motorIndex = curr_joint + 3*j;
+                        float targetDiff;
+                        bool isReverseMotor = std::find(reverseMotors.begin(), 
+                                                    reverseMotors.end(), 
+                                                    motorIndex) != reverseMotors.end();
+                        if (curr_joint == 1)
+                            targetDiff = isReverseMotor ? 5.0f : -5.0f;
+                        else
+                            targetDiff = isReverseMotor ? 8.0f : -8.0f;
+
+                        float tmpTgt = current_pos(curr_joint, j) + (targetDiff / float(maxK2)) * kk2;
+
+                        send_data.udp_motor_send[motorIndex].pos = tmpTgt;
+                        if (curr_joint == 1) //knee joint
+                        {
+                            send_data.udp_motor_send[motorIndex].kp = 0.2;
+                            send_data.udp_motor_send[motorIndex].kd = 0.15;
+                        } 
+                        else //ankle joint
+                        {
+                            send_data.udp_motor_send[motorIndex].kp = 0.12;
+                            send_data.udp_motor_send[motorIndex].kd = 0.08;
+                        }
+                    }
+                }
+                
+                if (kk2 == maxK2)
+                {
+                    // 初始化完成，退出函数
+                    std::cout << "所有关节初始化完成" << std::endl;
+                    return;
+                }
+            }
+            break;
+        }
+
+        last_pos = current_pos;
+
+        send_data.state = static_cast<uint8_t>(CommBoardState::kNormal);
         udp_comm.setSendData(send_data);
         udp_comm.send();
-        // receive feedback data
-        if (!udp_comm.receive(1000))
-        {
-            std::cerr << "Failed to receive data!" << std::endl;
-            return;
-        }
-        receive_data = udp_comm.getReceiveData();
 
-        for (int i = 0; i < 18; ++i)
-        {
-            double currentPos = receive_data.udp_motor_receive[i].pos;
-            double posDiff = std::fabs(currentPos - lastPositions[i]);
-            
-            if (posDiff <= kTolerance)
-            {
-                currentlyStable = true;
-            }
-            
-            lastPositions[i] = currentPos;
-        }
+        timer_.stop();
+        float control_frequency = 100.0;
+        double time_compensate =
+            1000. / control_frequency - timer_.elapsedMilliseconds();
 
-        if (currentlyStable)
+        if (time_compensate > 0)
         {
-            stableCounter++;
-            if (stableCounter >= kStableCount)
-            {
-                allMotorsStable = true;
-                std::cout << "All motors have reached stable positions." << std::endl;
-            }
+            usleep(static_cast<int>(time_compensate * 1000));
         }
-        
-        usleep(10000);
     }
-
-    std::cout << "Setting zero positions for all motors..." << std::endl;
-    for (int i = 0; i < 18; ++i)
-    {
-        double zeroPosition = receive_data.udp_motor_receive[i].pos;
-        std::cout << "Motor " << i << " zero position set to: " << zeroPosition << std::endl;
-    }
-    std::cout << "All motors initialization completed." << std::endl;
 }
-
-// void InitMotors2(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data)
-// {
-//     Timer timer_;
-//     int calibrationStep = -1;
-//     int forceControlTime = 0;
-//     int joint_num = 0;
-//     int sum_flag = 0;
-//     Eigen::Matrix<bool, 3, 6> init_finished_flag;
-//     Eigen::MatrixXd current_pos(3, 6);
-//     Eigen::MatrixXd last_pos(3, 6);
-//     // reverse motors list
-//     std::vector<int> reverseMotors = {1, 2, 4, 5, 9, 12, 15, 16, 17};
-
-//     while (true)
-//     {
-//         timer_.start();        
-//         //  标定程序
-//         switch (calibrationStep)
-//         {
-//             case -1: // 给定力控命令
-//                 forceControlTime++;
-//                 for (int j = 0; j < 6; ++j)
-//                 {
-//                     udp_send_data.udp_motor_send[joint_num+6*j].kp = 0.0;
-//                     if (joint_num == 0) // there exit difference between on-board calibration and lying calibration
-//                     {
-//                         // whether the motor is in reverse
-//                         bool isReverseMotor = std::find(reverseMotors.begin(), reverseMotors.end(), i) != reverseMotors.end();
-//                         double appliedTorque = isReverseMotor ? -0.15 : 0.15;                
-//                         udp_send_data.udp_motor_send[joint_num+3*j].torque = appliedTorque;
-//                         udp_send_data.udp_motor_send[joint_num+3*j].kd = 0.5;
-//                         std::cout << "forceControlTime: " << forceControlTime << std::endl;
-//                     }
-//                 }
-//                 if(forceControlTime > 2)
-//                 {
-//                     // calibrationStep = 0;
-//                     forceControlTime = 0;
-//                 }
-//             break;
-
-//             case 0:  // 判断是否到达机械限位
-//                 init_finished_flag.setZero();
-
-//                 //收取关节数据
-//                 if (udp_comm.receive(1000000))
-//                 {
-//                     udp_receive_data = udp_comm.getReceiveData();            
-
-//                     // 遍历所有电机并给矩阵赋值
-//                     for(int leg = 0; leg < 6; leg++) {       // 遍历6条腿
-//                         for(int joint = 0; joint < 3; joint++) { // 遍历每条腿的3个关节
-//                             // 计算电机索引 (每条腿3个关节)
-//                             int motor_idx = leg * 3 + joint;
-//                             // 将电机位置值赋给对应矩阵元素
-//                             current_pos(joint, leg) = udp_receive_data.udp_motor_receive[motor_idx].pos;
-//                         }
-//                     }
-
-//                 }
-
-//                 for (int j = 0; j < 6; ++j)
-//                 {
-//                     if (std::abs(current_pos(joint_num, j) - last_pos(joint_num, j)) < 0.002)
-//                     {
-//                         init_finished_flag(joint_num, j) = true;
-//                     }
-//                 }
-//                 //  determine whether all six joints in the same position reached the mechanical limit
-//                 sum_flag = 0;
-//                 for (int j = 0; j < 6; ++j)
-//                 {
-//                     sum_flag += init_finished_flag(joint_num, j);
-//                 }
-//                 if (sum_flag == 6)
-//                 {
-//                     std::cout << "test ok " << std::endl;
-//                     // 保存电机零位
-//                     for (int j = 0; j < 6; ++j)
-//                     {
-//                         // 记录零位位置
-//                         double zeroPosition = current_pos(joint_num, j);
-//                         std::cout << "Joint " << joint_num << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
-//                     }                    
-//                     // 进入下一个关节
-//                     ++joint_num;
-//                     if (joint_num == 1) // 力控阶段结束,进入根关节回0度case
-//                     {
-//                         calibrationStep = 1;
-//                     }
-//                     else if(joint_num == 2) // 膝关节继续力控
-//                     {
-//                         calibrationStep = -1;
-//                     }
-//                     else if(joint_num == 3) // 所有关节力控矫正结束，开始控制关节回到指定角度
-//                     {
-//                         calibrationStep = 2;
-//                     }
-//                 }
-//             case 1: // 根关节回0度位置
-                
-//             break;
-//         }
-
-
-//         last_pos = current_pos;
-
-//         udp_send_data.state = static_cast<uint8_t>(CommBoardState::kNormal);
-//         udp_comm.setSendData(udp_send_data);
-//         udp_comm.send();
-
-//         timer_.stop();
-//         float control_frequency = 1.0; 
-//         double time_compensate = 
-//             1000. / control_frequency - timer_.elapsedMilliseconds();
-
-//         if (time_compensate > 0)
-//         {
-//             usleep(static_cast<int>(time_compensate * 1000));  // 将毫秒转换为微秒
-//         }
-//     }
-//     return 0;
-// }
 
 void ProtectMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data)
 {
