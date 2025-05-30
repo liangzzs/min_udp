@@ -1,3 +1,12 @@
+/**
+ * @file test_udp.cpp
+ * @brief non-blocking UDP communication test and motor initialization
+ * @author Haowen Liang(1224559437@qq.com)
+ * @date 2025-5-20
+ *
+ * @copyright Copyright (C) 2025.
+ *
+ */
 #ifndef MOTOR_INIT_H
 #define MOTOR_INIT_H
 

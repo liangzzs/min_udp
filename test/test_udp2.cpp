@@ -25,17 +25,10 @@ int main(int argc, char *argv[])
     {
         printf("UDP 初始化失败\n");
         return 1;
-    }    
-
-    std::cout << "开始电机初始化..." << std::endl;
+    }
     
     // 直接调用 InitMotors 函数进行电机初始化
     InitMotors(udp_comm, udp_send_data, udp_receive_data);
-    
-    // 初始化完成后保护电机
-    //ProtectMotors(udp_comm, udp_send_data, udp_receive_data);
-    
-    std::cout << "电机初始化和保护完成" << std::endl;
 
     return 0;
 }
