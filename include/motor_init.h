@@ -8,13 +8,7 @@
 #include <ctime>
 #include <chrono>
 #include <Eigen/Dense>
-/**
- * @brief 标定六足机器人所有电机，使所有电机回到零位置点
- * 
- * @param udp_comm UDP通信对象，用于发送和接收数据
- * @param send_data 发送数据结构，包含电机目标参数
- * @param receive_data 接收数据结构，包含电机当前状态
- */
+
 void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data);
 
 void InitLegMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data, int leg_index);
@@ -22,6 +16,11 @@ void InitLegMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData
 void ProtectMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data);
 
 void InitMotors2(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data);
+
+void sendMotorCommand(int motorIndex, float jointAngle, float kp, float kd, float torque);
+
+void sendLegCommand(int legIndex, float hipAngle, float kneeAngle, float ankleAngle, 
+                   float kp, float kd, float torque);
 
 #endif // MOTOR_INIT_H
 
