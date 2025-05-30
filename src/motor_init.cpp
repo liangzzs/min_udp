@@ -209,30 +209,45 @@ void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &r
                 }
             }
 
-            for (int j = 0; j < 6; ++j)
+            // 合并检查膝关节和踝关节是否到达限位的循环
+            for (int joint = 1; joint < 3; joint++)
             {
-                if (std::abs(current_pos(joint_num, j) - last_pos(joint_num, j)) < 0.002)
-                {
-                    init_finished_flag(joint_num, j) = true;
-                }
-            }
-            sum_flag = 0;
-            for (int j = 0; j < 6; ++j)
-            {
-                sum_flag += init_finished_flag(joint_num, j);
-            }
-            if (sum_flag == 6)
-            {
-                std::cout << "test ok " << std::endl;
                 for (int j = 0; j < 6; ++j)
                 {
-                    int motorIndex = joint_num + 3 * j; 
-                    double zeroPosition = current_pos(joint_num, j);
-                    udp_send_data.udp_motor_send[motorIndex].torque = 0.0;
-                    udp_send_data.udp_motor_send[motorIndex].kp = 0.0;
-                    udp_send_data.udp_motor_send[motorIndex].kd = 0.0;
-                    std::cout << "Joint " << joint_num << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
+                    if (std::abs(current_pos(joint, j) - last_pos(joint, j)) < 0.002)
+                    {
+                        init_finished_flag(joint, j) = true;
+                    }
                 }
+            }
+            
+            sum_flag = 0;
+            // 计算膝关节和踝关节限位标志总和
+            for (int joint = 1; joint < 3; joint++)
+            {
+                for (int j = 0; j < 6; ++j)
+                {
+                    sum_flag += init_finished_flag(joint, j);
+                }
+            }
+            
+            if (sum_flag == 12) // 6条腿*2个关节=12个关节都到达限位
+            {
+                std::cout << "test ok " << std::endl;
+                // 保存膝关节和踝关节零位
+                for (int joint = 1; joint < 3; joint++)
+                {
+                    for (int j = 0; j < 6; ++j)
+                    {
+                        int motorIndex = joint + 3 * j; 
+                        double zeroPosition = current_pos(joint, j);
+                        udp_send_data.udp_motor_send[motorIndex].torque = 0.0;
+                        udp_send_data.udp_motor_send[motorIndex].kp = 0.0;
+                        udp_send_data.udp_motor_send[motorIndex].kd = 0.0;
+                        std::cout << "Joint " << joint << " Leg " << j << " zero position set to: " << zeroPosition << std::endl;
+                    }
+                }
+                
                 calibrationStep = 4; 
             }
             break;
