@@ -19,7 +19,98 @@ extern UdpComm udp_comm;
 extern udp::ReceiveData udp_receive_data;
 extern udp::SendData udp_send_data;
 
-//double motorZeroPositions[18] = {0.0}; // 初始化为零
+// 初始化电机零点位置数组
+double motorZeroPositions[18] = {0.0};
+
+// 标记需要反转的电机，这些电机的命令方向需要取反
+std::vector<int> reverseMotors = {1, 2, 4, 5, 9, 12, 15, 16, 17};
+
+// 设置电机零点位置
+void setMotorZeroPositions(const double* zeroPositions)
+{
+    udp_comm.receive(10); // 确保接收数据
+    udp_receive_data = udp_comm.getReceiveData();
+    if (zeroPositions != nullptr)
+    {
+        for(int i = 0; i < 18; ++i)
+        {
+            motorZeroPositions[i] = zeroPositions[i];
+        }
+    }
+}
+
+// 获取电机零点位置
+double* getMotorZeroPositions()
+{
+    return motorZeroPositions;
+}
+
+// 判断电机是否需要反向
+bool isMotorReversed(int motorIndex)
+{
+    return std::find(reverseMotors.begin(), reverseMotors.end(), motorIndex) != reverseMotors.end();
+}
+
+// 发送单个电机命令
+void sendMotorCommand(int motorIndex, float jointAngle, float kp, float kd, float torque)
+{
+    
+    if (motorIndex < 0 || motorIndex >= 18)
+    {
+        std::cerr << "错误：电机索引 " << motorIndex << " 超出范围 [0-17]" << std::endl;
+        return;
+    }
+    
+    // 添加零点补偿
+    float targetPos = motorZeroPositions[motorIndex];
+    
+    // 根据电机是否需要反向决定角度的加减方向
+    if (isMotorReversed(motorIndex))
+    {
+        targetPos -= jointAngle; // 反向电机减去目标角度
+    }
+    else
+    {
+        targetPos += jointAngle; // 正向电机加上目标角度
+    }
+    
+    // 设置电机命令
+    udp_send_data.udp_motor_send[motorIndex].pos = targetPos;
+    udp_send_data.udp_motor_send[motorIndex].kp = kp;
+    udp_send_data.udp_motor_send[motorIndex].kd = kd;
+    udp_send_data.udp_motor_send[motorIndex].torque = torque;
+    
+    // 发送命令
+    udp_send_data.state = static_cast<uint8_t>(CommBoardState::kNormal);
+    udp_comm.setSendData(udp_send_data);
+    udp_comm.send();
+}
+
+// 发送单条腿的所有关节命令
+void sendLegCommand(int legIndex, float hipAngle, float kneeAngle, float ankleAngle, 
+                   float kp, float kd, float torque)
+{
+    if (legIndex < 0 || legIndex >= 6)
+    {
+        std::cerr << "错误：腿索引 " << legIndex << " 超出范围 [0-5]" << std::endl;
+        return;
+    }
+    
+    // 计算该腿的三个关节对应的电机索引
+    int hipMotorIdx = legIndex * 3;
+    int kneeMotorIdx = legIndex * 3 + 1;
+    int ankleMotorIdx = legIndex * 3 + 2;
+    
+    // 使用sendMotorCommand为每个关节设置命令
+    // 髋关节命令
+    sendMotorCommand(hipMotorIdx, hipAngle, kp, kd, torque);
+    
+    // 膝关节命令
+    sendMotorCommand(kneeMotorIdx, kneeAngle, kp, kd, torque);
+    
+    // 踝关节命令
+    sendMotorCommand(ankleMotorIdx, ankleAngle, kp, kd, torque);
+}
 
 void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &receive_data)
 {
@@ -110,6 +201,7 @@ void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &r
                     int motorIndex = joint_num + 3 * j; // 在循环内部声明motorIndex
                     // 记录零位位置
                     double zeroPosition = current_pos(joint_num, j);
+                    motorZeroPositions[motorIndex] = zeroPosition; // 保存到全局零点数组
                     udp_send_data.udp_motor_send[motorIndex].torque = 0.0;
                     udp_send_data.udp_motor_send[motorIndex].kp = 0.0;
                     udp_send_data.udp_motor_send[motorIndex].kd = 0.0;
@@ -239,6 +331,7 @@ void InitMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData &r
                     {
                         int motorIndex = joint + 3 * j; 
                         double zeroPosition = current_pos(joint, j);
+                        motorZeroPositions[motorIndex] = zeroPosition; // 保存到全局零点数组
                         udp_send_data.udp_motor_send[motorIndex].torque = 0.0;
                         udp_send_data.udp_motor_send[motorIndex].kp = 0.0;
                         udp_send_data.udp_motor_send[motorIndex].kd = 0.0;
@@ -318,41 +411,3 @@ void ProtectMotors(UdpComm &udp_comm, udp::SendData &send_data, udp::ReceiveData
     udp_comm.setSendData(send_data);
     udp_comm.send();
 }
-
-//extern double motorZeroPositions[18]; 
-
-// void sendMotorCommand(int motorIndex, float jointAngle, float kp, float kd, float torque)
-// {
-//     if(motorIndex < 0 || motorIndex >= 18) {
-//         std::cerr << "错误：电机索引" << motorIndex << "超出范围(0-17)" << std::endl;
-//         return;
-//     }
-    
-//     // 计算补偿后的角度（加上零位点）
-//     float compensatedAngle = jointAngle + motorZeroPositions[motorIndex];
-    
-//     // 向电机发送命令
-//     udp_send_data.udp_motor_send[motorIndex].pos = compensatedAngle;
-//     udp_send_data.udp_motor_send[motorIndex].kp = kp;
-//     udp_send_data.udp_motor_send[motorIndex].kd = kd;
-//     udp_send_data.udp_motor_send[motorIndex].torque = torque;
-// }
-
-// void sendLegCommand(int legIndex, float hipAngle, float kneeAngle, float ankleAngle, 
-//                    float kp, float kd, float torque)
-// {
-//     if(legIndex < 0 || legIndex >= 6) {
-//         std::cerr << "错误：腿索引" << legIndex << "超出范围(0-5)" << std::endl;
-//         return;
-//     }
-    
-//     // 计算三个关节对应的电机索引
-//     int hipMotorIndex = legIndex * 3;      // 髋关节
-//     int kneeMotorIndex = legIndex * 3 + 1; // 膝关节
-//     int ankleMotorIndex = legIndex * 3 + 2; // 踝关节
-    
-//     // 发送命令到三个关节
-//     sendMotorCommand(hipMotorIndex, hipAngle, kp, kd, torque);
-//     sendMotorCommand(kneeMotorIndex, kneeAngle, kp, kd, torque);
-//     sendMotorCommand(ankleMotorIndex, ankleAngle, kp, kd, torque);
-// }
